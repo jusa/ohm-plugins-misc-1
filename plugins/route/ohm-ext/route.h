@@ -42,6 +42,11 @@ USA.
 #define OHM_EXT_ROUTE_ROUTES_METHOD             "Routes"
 #define OHM_EXT_ROUTE_ACTIVE_ROUTES_METHOD      "ActiveRoutes"
 
+/* Since InterfaceVersion 3 */
+#define OHM_EXT_ROUTE_GET_ALL3_METHOD           "GetAll3"
+#define OHM_EXT_ROUTE_PREFER_METHOD             "Prefer"
+#define OHM_EXT_ROUTE_PREFER_CHANGED_SIGNAL     "PreferChanged"
+
 /* Bits defining audio route type. */
 #define OHM_EXT_ROUTE_TYPE_UNKNOWN              (0)
 #define OHM_EXT_ROUTE_TYPE_OUTPUT               (1 << 0)    /* sink     */
@@ -50,5 +55,16 @@ USA.
 #define OHM_EXT_ROUTE_TYPE_WIRED                (1 << 3)
 #define OHM_EXT_ROUTE_TYPE_WIRELESS             (1 << 4)
 #define OHM_EXT_ROUTE_TYPE_VOICE                (1 << 5)
+/* Since InterfaceVersion 3 */
+#define OHM_EXT_ROUTE_TYPE_AVAILABLE            (1 << 6)
+#define OHM_EXT_ROUTE_TYPE_PREFERRED            (1 << 7)
+#define OHM_EXT_ROUTE_TYPE_ACTIVE               (1 << 8)
+
+
+#define OHM_EXT_ROUTE_TYPE_BLUETOOTH_SCO        (1 << 9)
+#define OHM_EXT_ROUTE_TYPE_BLUETOOTH_A2DP       (1 << 10)
+#define OHM_EXT_ROUTE_TYPE_HEADSET              (1 << 11)
+#define OHM_EXT_ROUTE_TYPE_HEADPHONE            (1 << 12)
+#define OHM_EXT_ROUTE_TYPE_USB                  (1 << 13)
 
 #endif

@@ -58,6 +58,7 @@ static DBusHandlerResult method(DBusConnection *conn, DBusMessage *msg, void *ud
 
 static DBusMessage *handle_interface_version(DBusMessage *msg);
 static DBusMessage *handle_introspect(DBusMessage *msg);
+static DBusMessage *handle_get_all(DBusMessage *msg, int version);
 static DBusMessage *handle_get_all1(DBusMessage *msg);
 static DBusMessage *set_feature(DBusMessage *msg, int enable);
 static DBusMessage *handle_enable(DBusMessage *msg);
@@ -68,6 +69,8 @@ static DBusMessage *handle_features_allowed(DBusMessage *msg);
 static DBusMessage *handle_features_enabled(DBusMessage *msg);
 static DBusMessage *handle_routes(DBusMessage *msg);
 static DBusMessage *handle_active_routes(DBusMessage *msg);
+/* Since InterfaceVersion 3 */
+static DBusMessage *handle_get_all3(DBusMessage *msg);
 
 static void send_signal(DBusMessage *msg);
 
@@ -219,6 +222,8 @@ static DBusHandlerResult method(DBusConnection *conn, DBusMessage *msg, void *ud
         { OHM_EXT_ROUTE_FEATURES_ENABLED_METHOD     ,   handle_features_enabled     },
         { OHM_EXT_ROUTE_ROUTES_METHOD               ,   handle_routes               },
         { OHM_EXT_ROUTE_ACTIVE_ROUTES_METHOD        ,   handle_active_routes        }
+        /* Since InterfaceVersion 3 */
+        { OHM_EXT_ROUTE_GET_ALL3_METHOD             ,   handle_get_all3             },
     };
 
     int               type;
@@ -323,6 +328,16 @@ static DBusMessage *msg_append_active_routes(DBusMessage *msg, DBusMessageIter *
 
 static DBusMessage *handle_get_all1(DBusMessage *msg)
 {
+    return handle_get_all(msg, 1);
+}
+
+static DBusMessage *handle_get_all3(DBusMessage *msg)
+{
+    return handle_get_all(msg, 3);
+}
+
+static DBusMessage *handle_get_all(DBusMessage *msg, int version)
+{
     DBusMessage *reply;
     DBusMessageIter append;
     DBusMessageIter entry;
@@ -353,11 +368,20 @@ static DBusMessage *handle_get_all1(DBusMessage *msg)
             dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &feature->name);
             dbus_message_iter_append_basic(&entry, DBUS_TYPE_UINT32, &feature->allowed);
             dbus_message_iter_append_basic(&entry, DBUS_TYPE_UINT32, &feature->enabled);
-
             dbus_message_iter_close_container(&struct_entry, &entry);
         }
 
         dbus_message_iter_close_container(&append, &struct_entry);
+
+        if (version >= 3) {
+            dbus_message_iter_open_container(&append,
+                                             DBUS_TYPE_ARRAY,
+                                             DBUS_STRUCT_BEGIN_CHAR_AS_STRING
+                                               DBUS_TYPE_STRING_AS_STRING
+                                               DBUS_TYPE_UINT32_AS_STRING
+                                             DBUS_STRUCT_END_CHAR_AS_STRING,
+                                             &struct_entry);
+        }
     }
 
     return reply;
@@ -474,7 +498,7 @@ static DBusMessage *handle_routes(DBusMessage *msg)
 {
     DBusMessage *reply;
     DBusMessageIter append;
-    DBusMessageIter dict_entry;
+    DBusMessageIter struct_entry;
     DBusMessageIter entry;
     const struct audio_device_mapping *mapping;
     const char *m_name;
@@ -484,19 +508,20 @@ static DBusMessage *handle_routes(DBusMessage *msg)
     reply = dbus_message_new_method_return(msg);
     dbus_message_iter_init_append(reply, &append);
 
+
     dbus_message_iter_open_container(&append,
                                      DBUS_TYPE_ARRAY,
-                                     DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+                                     DBUS_STRUCT_BEGIN_CHAR_AS_STRING
                                        DBUS_TYPE_STRING_AS_STRING
                                        DBUS_TYPE_UINT32_AS_STRING
-                                     DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-                                     &dict_entry);
+                                     DBUS_STRUCT_END_CHAR_AS_STRING,
+                                     &struct_entry);
 
     for (i = route_get_mappings(); i; i = g_slist_next(i)) {
         mapping = i->data;
 
-        dbus_message_iter_open_container(&dict_entry,
-                                         DBUS_TYPE_DICT_ENTRY,
+        dbus_message_iter_open_container(&struct_entry,
+                                         DBUS_TYPE_STRUCT,
                                          NULL,
                                          &entry);
 
@@ -505,10 +530,10 @@ static DBusMessage *handle_routes(DBusMessage *msg)
         dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &m_name);
         dbus_message_iter_append_basic(&entry, DBUS_TYPE_UINT32, &m_type);
 
-        dbus_message_iter_close_container(&dict_entry, &entry);
+        dbus_message_iter_close_container(&struct_entry, &entry);
     }
 
-    dbus_message_iter_close_container(&append, &dict_entry);
+    dbus_message_iter_close_container(&append, &struct_entry);
 
     return reply;
 }

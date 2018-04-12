@@ -38,7 +38,7 @@
             <arg name="features_enabled" type="as" direction="out"/>
         </method>
         <method name="Routes">
-            <arg name="routes" type="a{su}" direction="out"/>
+            <arg name="routes" type="a(su)" direction="out"/>
         </method>
         <method name="ActiveRoutes">
             <arg name="output_device" type="s" direction="out"/>
@@ -46,5 +46,15 @@
             <arg name="input_device" type="s" direction="out"/>
             <arg name="input_device_type" type="u" direction="out"/>
         </method>
+
+    <!-- since InterfaceVersion 3 -->
+        <method name="Prefer">
+            <arg name="device" type="usb" direction="in"/>
+        </method>
+        <signal name="PreferChanged">
+            <arg name="device_type" type="u"/>
+            <arg name="device" type="s"/>
+            <arg name="preferred" type="b"/>
+        </signal>
     </interface>
 </node>
