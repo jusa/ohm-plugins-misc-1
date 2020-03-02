@@ -52,12 +52,18 @@ struct audio_device_mapping_route {
 #define FACTSTORE_FEATURE               FACTSTORE_PREFIX ".feature"
 #define FACTSTORE_AUDIO_OUTPUT          FACTSTORE_PREFIX ".audio_output_configuration"
 #define FACTSTORE_AUDIO_INPUT           FACTSTORE_PREFIX ".audio_input_configuration"
+#define FACTSTORE_AUDIO_SELECTABLE      FACTSTORE_PREFIX ".audio_device_selectable"
+#define FACTSTORE_AUDIO_PREFERRED       FACTSTORE_PREFIX ".audio_device_preferred"
 
 #define FACTSTORE_CONTEXT_ARG_VALUE     "value"
 
 #define FACTSTORE_AUDIO_ARG_DEVICE      "device"
 #define FACTSTORE_AUDIO_ARG_TYPE        "type"
 #define FACTSTORE_AUDIO_ARG_COMMONNAME  "commonname"
+
+#define FACTSTORE_ARG_NAME              "name"
+#define FACTSTORE_ARG_SELECTABLE        "selectable"
+#define FACTSTORE_ARG_PREFERRED         "preferred"
 
 #define FACTSTORE_FEATURE_ARG_NAME      "name"
 #define FACTSTORE_FEATURE_ARG_ALLOWED   "allowed"
@@ -89,6 +95,16 @@ static unsigned int type_from_string(const char *str) {
         return OHM_EXT_ROUTE_TYPE_INPUT;
     else
         return OHM_EXT_ROUTE_TYPE_UNKNOWN;
+}
+
+static const char *type_bit_to_string(int type)
+{
+    switch (type) {
+        case OHM_EXT_ROUTE_TYPE_AVAILABLE:      return "AVAILABLE";
+        case OHM_EXT_ROUTE_TYPE_PREFERRED:      return "PREFERRED";
+    };
+
+    return "UNKNOWN";
 }
 
 static struct audio_device_mapping *mapping_by_commonname_and_type(const char *commonname,
@@ -190,6 +206,59 @@ static void read_devices(fsif_entry_t *entry, gpointer userdata)
     OHM_DEBUG(DBG_ROUTE, "init     device %s policy route %s", m->name, r->name);
 }
 
+static void update_devices(fsif_entry_t *entry, const char *fact_name,
+                           const char *value_name, int value_apply)
+{
+    struct audio_device_mapping        *m;
+    struct audio_device_mapping_route  *r;
+    char                               *device;
+    int                                 value;
+    GSList                             *i, *n;
+
+    fsif_get_field_by_entry(entry, fldtype_string, FACTSTORE_ARG_NAME, &device);
+    fsif_get_field_by_entry(entry, fldtype_integer, (char *) value_name, &value);
+
+    if (!device) {
+        OHM_ERROR("route [%s]: malformed %s entry", __FUNCTION__, fact_name);
+        return;
+    }
+
+    /* No need to update anything if the value is 0. */
+    if (!value)
+        return;
+
+    for (i = mappings; i; i = g_slist_next(i)) {
+        m = i->data;
+
+        for (n = m->routes; n; n = g_slist_next(n)) {
+            r = n->data;
+            if (strcmp(r->name, device) == 0) {
+                m->type |= value_apply;
+                OHM_DEBUG(DBG_ROUTE, "init     device %s policy route %s add bit %s",
+                                     m->name, r->name, type_bit_to_string(value_apply));
+            }
+        }
+    }
+}
+
+static void update_devices_selectable(gpointer data, gpointer userdata)
+{
+    fsif_entry_t *entry = data;
+    update_devices(entry,
+                   FACTSTORE_AUDIO_SELECTABLE,
+                   FACTSTORE_ARG_SELECTABLE,
+                   OHM_EXT_ROUTE_TYPE_AVAILABLE);
+}
+
+static void update_devices_preferred(gpointer data, gpointer userdata)
+{
+    fsif_entry_t *entry = data;
+    update_devices(entry,
+                   FACTSTORE_AUDIO_PREFERRED,
+                   FACTSTORE_ARG_PREFERRED,
+                   OHM_EXT_ROUTE_TYPE_PREFERRED);
+}
+
 static void read_features(fsif_entry_t *entry, gpointer userdata)
 {
     struct audio_feature   *f;
@@ -236,6 +305,12 @@ void route_init(OhmPlugin *plugin)
         g_slist_foreach(entries, (GFunc) read_devices, GINT_TO_POINTER(OHM_EXT_ROUTE_TYPE_OUTPUT));
     if ((entries = fsif_get_entries_by_name(FACTSTORE_AUDIO_INPUT)))
         g_slist_foreach(entries, (GFunc) read_devices, GINT_TO_POINTER(OHM_EXT_ROUTE_TYPE_INPUT));
+
+    if ((entries = fsif_get_entries_by_name(FACTSTORE_AUDIO_SELECTABLE)))
+        g_slist_foreach(entries, update_devices_selectable, NULL);
+
+    if ((entries = fsif_get_entries_by_name(FACTSTORE_AUDIO_PREFERRED)))
+        g_slist_foreach(entries, update_devices_preferred, NULL);
 
     if ((entries = fsif_get_entries_by_name(FACTSTORE_FEATURE)))
         g_slist_foreach(entries, (GFunc) read_features, NULL);
