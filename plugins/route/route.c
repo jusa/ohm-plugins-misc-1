@@ -45,6 +45,9 @@ struct audio_device_mapping_route {
     int type;
 };
 
+#undef OHM_DEBUG
+#define OHM_DEBUG(x, ...) OHM_INFO(__VA_ARGS__)
+
 /* FactStore fact names */
 #define FACTSTORE_PREFIX                "com.nokia.policy"
 #define FACTSTORE_AUDIO_ROUTE           FACTSTORE_PREFIX ".audio_route"
