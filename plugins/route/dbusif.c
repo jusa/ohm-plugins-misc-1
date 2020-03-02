@@ -221,7 +221,7 @@ static DBusHandlerResult method(DBusConnection *conn, DBusMessage *msg, void *ud
         { OHM_EXT_ROUTE_FEATURES_ALLOWED_METHOD     ,   handle_features_allowed     },
         { OHM_EXT_ROUTE_FEATURES_ENABLED_METHOD     ,   handle_features_enabled     },
         { OHM_EXT_ROUTE_ROUTES_METHOD               ,   handle_routes               },
-        { OHM_EXT_ROUTE_ACTIVE_ROUTES_METHOD        ,   handle_active_routes        }
+        { OHM_EXT_ROUTE_ACTIVE_ROUTES_METHOD        ,   handle_active_routes        },
         /* Since InterfaceVersion 3 */
         { OHM_EXT_ROUTE_GET_ALL3_METHOD             ,   handle_get_all3             },
     };
