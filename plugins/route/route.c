@@ -35,14 +35,14 @@ USA.
 
 struct audio_device_mapping {
     char *name;
-    int type;
+    uint32_t type;
     GSList *routes;
 };
 
 struct audio_device_mapping_route {
-    const struct audio_device_mapping *common;
+    struct audio_device_mapping *common;
     char *name;
-    int type;
+    uint32_t type;
 };
 
 #undef OHM_DEBUG
@@ -88,6 +88,8 @@ static GSList *features;
 
 static void audio_route_changed_cb(fsif_entry_t *entry, char *name,
                                    fsif_field_t *fld, void *userdata);
+static void audio_property_changed_cb(fsif_entry_t *entry, char *name,
+                                      fsif_field_t *fld, void *userdata);
 static void audio_feature_changed_cb(fsif_entry_t *entry, char *name,
                                      fsif_field_t *fld, void *userdata);
 
@@ -105,9 +107,29 @@ static const char *type_bit_to_string(int type)
     switch (type) {
         case OHM_EXT_ROUTE_TYPE_AVAILABLE:      return "AVAILABLE";
         case OHM_EXT_ROUTE_TYPE_PREFERRED:      return "PREFERRED";
+        case OHM_EXT_ROUTE_TYPE_ACTIVE:         return "ACTIVE";
     };
 
     return "UNKNOWN";
+}
+
+static gboolean set_mapping_bit(struct audio_device_mapping *mapping, uint32_t bit, gboolean enable)
+{
+    gboolean changed = FALSE;
+
+    if (!(mapping->type & bit) && enable) {
+        changed = TRUE;
+        mapping->type |= bit;
+        OHM_DEBUG(DBG_ROUTE, "device %s add bit %s",
+                             mapping->name, type_bit_to_string(bit));
+    } else if ((mapping->type & bit) && !enable) {
+        changed = TRUE;
+        mapping->type &= ~bit;
+        OHM_DEBUG(DBG_ROUTE, "device %s del bit %s",
+                             mapping->name, type_bit_to_string(bit));
+    }
+
+    return changed;
 }
 
 static struct audio_device_mapping *mapping_by_commonname_and_type(const char *commonname,
@@ -235,17 +257,16 @@ static void update_devices(fsif_entry_t *entry, const char *fact_name,
 
         for (n = m->routes; n; n = g_slist_next(n)) {
             r = n->data;
-            if (strcmp(r->name, device) == 0) {
-                m->type |= value_apply;
-                OHM_DEBUG(DBG_ROUTE, "init     device %s policy route %s add bit %s",
-                                     m->name, r->name, type_bit_to_string(value_apply));
-            }
+            if (strcmp(r->name, device) == 0)
+                set_mapping_bit(m, value_apply, TRUE);
         }
     }
 }
 
 static void update_devices_selectable(gpointer data, gpointer userdata)
 {
+    (void) userdata;
+
     fsif_entry_t *entry = data;
     update_devices(entry,
                    FACTSTORE_AUDIO_SELECTABLE,
@@ -255,6 +276,8 @@ static void update_devices_selectable(gpointer data, gpointer userdata)
 
 static void update_devices_preferred(gpointer data, gpointer userdata)
 {
+    (void) userdata;
+
     fsif_entry_t *entry = data;
     update_devices(entry,
                    FACTSTORE_AUDIO_PREFERRED,
@@ -309,9 +332,11 @@ void route_init(OhmPlugin *plugin)
     if ((entries = fsif_get_entries_by_name(FACTSTORE_AUDIO_INPUT)))
         g_slist_foreach(entries, (GFunc) read_devices, GINT_TO_POINTER(OHM_EXT_ROUTE_TYPE_INPUT));
 
+    OHM_DEBUG(DBG_ROUTE, ":: init devices selectable");
     if ((entries = fsif_get_entries_by_name(FACTSTORE_AUDIO_SELECTABLE)))
         g_slist_foreach(entries, update_devices_selectable, NULL);
 
+    OHM_DEBUG(DBG_ROUTE, ":: init devices preferred");
     if ((entries = fsif_get_entries_by_name(FACTSTORE_AUDIO_PREFERRED)))
         g_slist_foreach(entries, update_devices_preferred, NULL);
 
@@ -320,6 +345,12 @@ void route_init(OhmPlugin *plugin)
 
     fsif_add_field_watch(FACTSTORE_AUDIO_ROUTE, NULL, FACTSTORE_AUDIO_ARG_DEVICE,
                          audio_route_changed_cb, NULL);
+
+    fsif_add_field_watch(FACTSTORE_AUDIO_SELECTABLE, NULL, FACTSTORE_ARG_SELECTABLE,
+                         audio_property_changed_cb, GUINT_TO_POINTER(OHM_EXT_ROUTE_TYPE_AVAILABLE));
+
+    fsif_add_field_watch(FACTSTORE_AUDIO_PREFERRED, NULL, FACTSTORE_ARG_PREFERRED,
+                         audio_property_changed_cb, GUINT_TO_POINTER(OHM_EXT_ROUTE_TYPE_PREFERRED));
 
     fsif_add_field_watch(FACTSTORE_FEATURE, NULL, FACTSTORE_FEATURE_ARG_ALLOWED,
                          audio_feature_changed_cb, NULL);
@@ -395,7 +426,12 @@ static void audio_route_changed_cb(fsif_entry_t   *entry,
         if (*active == route)
             return;
 
+        if (*active && set_mapping_bit((*active)->common, OHM_EXT_ROUTE_TYPE_ACTIVE, FALSE))
+            dbusif_signal_route_changed((*active)->common->name, route_type(*active));
+
         *active = route;
+
+        set_mapping_bit((*active)->common, OHM_EXT_ROUTE_TYPE_ACTIVE, TRUE);
 
         OHM_DEBUG(DBG_ROUTE, "audio route: type=%s device=%s common_name=%s",
                              type_str, route->name, route->common->name);
@@ -408,6 +444,33 @@ static void audio_route_changed_cb(fsif_entry_t   *entry,
     else {
         OHM_ERROR("route [%s]: unknown device %s", __FUNCTION__, device);
         dbusif_signal_route_changed(device, type);
+    }
+}
+
+static void audio_property_changed_cb(fsif_entry_t   *entry,
+                                      char           *name,
+                                      fsif_field_t   *fld,
+                                      void           *userdata)
+{
+    uint32_t                            bit         = GPOINTER_TO_UINT(userdata);
+    char                               *device      = "<unknown>";
+    int                                 enabled;
+    struct audio_device_mapping_route  *route       = NULL;
+
+    (void) name;
+    (void) userdata;
+
+    if (fld->type != fldtype_integer) {
+        OHM_ERROR("route [%s]: invalid field type", __FUNCTION__);
+        return;
+    }
+
+    enabled = fld->value.integer;
+    fsif_get_field_by_entry(entry, fldtype_string, FACTSTORE_ARG_NAME, &device);
+
+    if ((route = route_by_device_name_and_type(device, OHM_EXT_ROUTE_TYPE_OUTPUT))) {
+        if (set_mapping_bit(route->common, bit, !!enabled))
+            dbusif_signal_route_changed(route->common->name, route_type(route));
     }
 }
 
@@ -562,6 +625,18 @@ int route_feature_request(const char *name, int enable)
     ret = dresif_set_feature(feature->name, enable);
 
     return ret == DRESIF_RESULT_SUCCESS ? FEATURE_RESULT_SUCCESS : FEATURE_RESULT_ERROR;
+}
+
+int route_prefer_request(const char *name, uint32_t type, uint32_t set)
+{
+    int ret;
+
+    if (!mapping_by_commonname_and_type(name, type))
+        return FEATURE_RESULT_UNKNOWN;
+
+    ret = dresif_set_prefer(name, (int) set);
+
+    return ret == DRESIF_RESULT_SUCCESS ? PREFER_RESULT_SUCCESS : PREFER_RESULT_ERROR;
 }
 
 const GSList *route_get_features()
