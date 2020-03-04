@@ -20,6 +20,7 @@ USA.
 
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -68,9 +69,10 @@ static DBusMessage *handle_features(DBusMessage *msg);
 static DBusMessage *handle_features_allowed(DBusMessage *msg);
 static DBusMessage *handle_features_enabled(DBusMessage *msg);
 static DBusMessage *handle_routes(DBusMessage *msg);
-static DBusMessage *handle_active_routes(DBusMessage *msg);
 /* Since InterfaceVersion 3 */
 static DBusMessage *handle_get_all3(DBusMessage *msg);
+static DBusMessage *handle_available_routes(DBusMessage *msg);
+static DBusMessage *handle_prefer(DBusMessage *msg);
 
 static void send_signal(DBusMessage *msg);
 
@@ -221,9 +223,10 @@ static DBusHandlerResult method(DBusConnection *conn, DBusMessage *msg, void *ud
         { OHM_EXT_ROUTE_FEATURES_ALLOWED_METHOD     ,   handle_features_allowed     },
         { OHM_EXT_ROUTE_FEATURES_ENABLED_METHOD     ,   handle_features_enabled     },
         { OHM_EXT_ROUTE_ROUTES_METHOD               ,   handle_routes               },
-        { OHM_EXT_ROUTE_ACTIVE_ROUTES_METHOD        ,   handle_active_routes        },
+        { OHM_EXT_ROUTE_AVAILABLE_ROUTES_METHOD     ,   handle_available_routes     },
         /* Since InterfaceVersion 3 */
         { OHM_EXT_ROUTE_GET_ALL3_METHOD             ,   handle_get_all3             },
+        { OHM_EXT_ROUTE_PREFER_METHOD               ,   handle_prefer               },
     };
 
     int               type;
@@ -387,6 +390,68 @@ static DBusMessage *handle_get_all(DBusMessage *msg, int version)
     return reply;
 }
 
+static DBusMessage *handle_prefer(DBusMessage *msg)
+{
+    DBusMessage *reply;
+    const char  *route;
+    uint32_t     type;
+    uint32_t     set;
+    int          ret;
+    int          success = FALSE;
+
+    success = dbus_message_get_args(msg, NULL,
+                                    DBUS_TYPE_STRING, &route,
+                                    DBUS_TYPE_UINT32, &type,
+                                    DBUS_TYPE_UINT32, &set,
+                                    DBUS_TYPE_INVALID);
+
+    if (!success) {
+        OHM_DEBUG(DBG_DBUS, "malformed prefer request");
+        return dbus_message_new_error(msg, DBUS_NEMOMOBILE_ERROR_FAILED,
+                                      "Invalid message format");
+    }
+
+    if (!(type & OHM_EXT_ROUTE_TYPE_OUTPUT)) {
+        reply = dbus_message_new_error(msg, DBUS_NEMOMOBILE_ERROR_FAILED,
+                                       "Bad type");
+        goto done;
+    }
+
+    OHM_DEBUG(DBG_DBUS, "prefer request: route=%s set=%u", route, set);
+
+    ret = route_prefer_request(route, type, set);
+
+    switch (ret)
+    {
+        case PREFER_RESULT_SUCCESS:
+            reply = dbus_message_new_method_return(msg);
+            break;
+
+        case PREFER_RESULT_UNKNOWN:
+            reply = dbus_message_new_error(msg, DBUS_NEMOMOBILE_ERROR_UNKNOWN,
+                                           "Unknown route");
+            break;
+
+        case PREFER_RESULT_DENIED:
+            reply = dbus_message_new_error(msg, DBUS_NEMOMOBILE_ERROR_DENIED,
+                                           "Operation not allowed at this time");
+            break;
+
+        case PREFER_RESULT_ERROR:
+            reply = dbus_message_new_error(msg, DBUS_NEMOMOBILE_ERROR_FAILED,
+                                           "Policy error");
+            break;
+
+        default:
+            reply = dbus_message_new_error(msg, DBUS_NEMOMOBILE_ERROR_FAILED,
+                                           "Unknown error");
+            break;
+    }
+
+done:
+    return reply;
+}
+
 static DBusMessage *set_feature(DBusMessage *msg, int enable)
 {
     DBusMessage *reply;
@@ -494,7 +559,7 @@ static DBusMessage *handle_features_enabled(DBusMessage *msg)
     return feature_lists(msg, 0, 1);
 }
 
-static DBusMessage *handle_routes(DBusMessage *msg)
+static DBusMessage *handle_routes_filter(DBusMessage *msg, uint32_t filter)
 {
     DBusMessage *reply;
     DBusMessageIter append;
@@ -519,14 +584,17 @@ static DBusMessage *handle_routes(DBusMessage *msg)
 
     for (i = route_get_mappings(); i; i = g_slist_next(i)) {
         mapping = i->data;
+        m_name = route_mapping_name(mapping);
+        m_type = route_mapping_type(mapping);
+
+        if (filter && !(m_type & filter))
+            continue;
 
         dbus_message_iter_open_container(&struct_entry,
                                          DBUS_TYPE_STRUCT,
                                          NULL,
                                          &entry);
 
-        m_name = route_mapping_name(mapping);
-        m_type = route_mapping_type(mapping);
         dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &m_name);
         dbus_message_iter_append_basic(&entry, DBUS_TYPE_UINT32, &m_type);
 
@@ -538,11 +606,14 @@ static DBusMessage *handle_routes(DBusMessage *msg)
     return reply;
 }
 
-static DBusMessage *handle_active_routes(DBusMessage *msg)
+static DBusMessage *handle_routes(DBusMessage *msg)
 {
-    DBusMessageIter append;
+    return handle_routes_filter(msg, 0);
+}
 
-    return msg_append_active_routes(msg, &append);
+static DBusMessage *handle_available_routes(DBusMessage *msg)
+{
+    return handle_routes_filter(msg, OHM_EXT_ROUTE_TYPE_AVAILABLE);
 }
 
 static void send_signal(DBusMessage *msg)
