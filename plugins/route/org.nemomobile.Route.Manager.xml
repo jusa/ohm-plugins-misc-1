@@ -38,25 +38,23 @@
         <method name="FeaturesEnabled">
             <arg name="features_enabled" type="as" direction="out"/>
         </method>
-
-    <!-- since InterfaceVersion 3 -->
         <method name="Routes">
             <arg name="routes" type="a(su)" direction="out"/>
         </method>
         <method name="ActiveRoutes">
-            <arg name="routes" type="a(su)" direction="out"/>
+            <arg name="output_device" type="s" direction="out"/>
+            <arg name="output_device_type" type="u" direction="out"/>
+            <arg name="input_device" type="s" direction="out"/>
+            <arg name="input_device_type" type="u" direction="out"/>
         </method>
+
+    <!-- since InterfaceVersion 3 -->
         <method name="AvailableRoutes">
             <arg name="routes" type="a(su)" direction="out"/>
         </method>
 
         <method name="Prefer">
-            <arg name="device" type="usb" direction="in"/>
+            <arg name="device" type="sub" direction="in"/>
         </method>
-        <signal name="PreferChanged">
-            <arg name="device" type="s"/>
-            <arg name="device_type" type="u"/>
-            <arg name="preferred" type="b"/>
-        </signal>
     </interface>
 </node>
